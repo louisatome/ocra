@@ -662,6 +662,7 @@ EOF
           Ocra.warn "Gem #{spec.full_name} root folder was not found, skipping"
           next
         end
+		
 
         # Find the selected files
         include.each do |set|
@@ -673,18 +674,21 @@ EOF
           when :files
             gem_root_files ||= gem_root.find_all_files(//)
             files << gem_root_files.select { |path| path.relative_path_from(gem_root) !~ GEM_NON_FILE_RE }
-          when :extra
+          when :extras
             gem_root_files ||= gem_root.find_all_files(//)
-            files << gem_root_files.select { |path| path.relative_path_from(gem_root) =~ GEM_EXTRA_RE }
+			new_files=gem_root_files.select { |path| path.relative_path_from(gem_root) =~ GEM_EXTRA_RE }
+			new_files << find_extension_files(gems)
+            files << new_files
           when :scripts
             gem_root_files ||= gem_root.find_all_files(//)
-            files << gem_root_files.select { |path| path.relative_path_from(gem_root) =~ GEM_SCRIPT_RE }
+			new_files=gem_root_files.select { |path| path.relative_path_from(gem_root) =~ GEM_SCRIPT_RE }
+            files << new_files
           end
         end
 
         files.flatten!
         actual_files = files.select { |file| file.file? }
-
+		
         (files - actual_files).each do |missing_file|
           Ocra.warn "#{missing_file} was not found"
         end
@@ -700,6 +704,21 @@ EOF
     end
     features_from_gems -= gem_files
     return gem_files, features_from_gems
+  end
+  
+  
+  def Ocra.find_extension_files(gems)
+	files=[]
+	gems.each do |gemname, spec|
+		puts "Gem #{gemname}, ext path = #{spec.extension_dir}"
+		if Dir.exist?(spec.extension_dir)
+			ext_root=Pathname(spec.extension_dir)
+			puts "Extension exists !!!"
+			files << ext_root.find_all_files(//)
+		end
+	end
+	
+	return files
   end
 
   def Ocra.build_exe
@@ -761,6 +780,7 @@ EOF
     libs = []
     features.each do |feature|
       path = find_load_path(all_load_paths, feature)
+	  puts "Feature PATH :: #{path}"
       if path.nil? || path.expand == Pathname.pwd
         Ocra.files << feature
       else
@@ -768,7 +788,9 @@ EOF
           feature = feature.relative_path_from(path.expand)
         end
         fullpath = feature.expand(path)
-
+		puts "FUUKKKKKKLLL path :: #{fullpath}"
+		
+		
         if fullpath.subpath?(Host.exec_prefix)
           # Features found in the Ruby installation are put in the
           # temporary Ruby installation.
