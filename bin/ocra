@@ -655,6 +655,12 @@ EOF
         Ocra.msg "Detected gem #{spec.full_name} (#{include.join(', ')})"
 
         gem_root = Pathname(spec.gem_dir)
+        gem_extension = (gem_root / '..' / '..' / 'extensions').expand
+        if gem_extension.exist?
+          build_complete = gem_extension.find_all_files(/gem.build_complete/).select{|p| p.dirname.basename.to_s == spec.full_name}
+        else
+          build_complete = nil
+        end
         gem_root_files = nil
         files = []
 
@@ -662,7 +668,6 @@ EOF
           Ocra.warn "Gem #{spec.full_name} root folder was not found, skipping"
           next
         end
-		
 
         # Find the selected files
         include.each do |set|
@@ -674,21 +679,19 @@ EOF
           when :files
             gem_root_files ||= gem_root.find_all_files(//)
             files << gem_root_files.select { |path| path.relative_path_from(gem_root) !~ GEM_NON_FILE_RE }
+            files << build_complete if build_complete
           when :extras
             gem_root_files ||= gem_root.find_all_files(//)
-			new_files=gem_root_files.select { |path| path.relative_path_from(gem_root) =~ GEM_EXTRA_RE }
-			new_files << find_extension_files(gems)
-            files << new_files
+            files << gem_root_files.select { |path| path.relative_path_from(gem_root) =~ GEM_EXTRA_RE }
           when :scripts
             gem_root_files ||= gem_root.find_all_files(//)
-			new_files=gem_root_files.select { |path| path.relative_path_from(gem_root) =~ GEM_SCRIPT_RE }
-            files << new_files
+            files << gem_root_files.select { |path| path.relative_path_from(gem_root) =~ GEM_SCRIPT_RE }
           end
         end
 
         files.flatten!
         actual_files = files.select { |file| file.file? }
-		
+
         (files - actual_files).each do |missing_file|
           Ocra.warn "#{missing_file} was not found"
         end
@@ -704,21 +707,6 @@ EOF
     end
     features_from_gems -= gem_files
     return gem_files, features_from_gems
-  end
-  
-  
-  def Ocra.find_extension_files(gems)
-	files=[]
-	gems.each do |gemname, spec|
-		puts "Gem #{gemname}, ext path = #{spec.extension_dir}"
-		if Dir.exist?(spec.extension_dir)
-			ext_root=Pathname(spec.extension_dir)
-			puts "Extension exists !!!"
-			files << ext_root.find_all_files(//)
-		end
-	end
-	
-	return files
   end
 
   def Ocra.build_exe
@@ -780,7 +768,6 @@ EOF
     libs = []
     features.each do |feature|
       path = find_load_path(all_load_paths, feature)
-	  puts "Feature PATH :: #{path}"
       if path.nil? || path.expand == Pathname.pwd
         Ocra.files << feature
       else
@@ -788,9 +775,7 @@ EOF
           feature = feature.relative_path_from(path.expand)
         end
         fullpath = feature.expand(path)
-		puts "FUUKKKKKKLLL path :: #{fullpath}"
-		
-		
+
         if fullpath.subpath?(Host.exec_prefix)
           # Features found in the Ruby installation are put in the
           # temporary Ruby installation.
@@ -1091,7 +1076,7 @@ EOF
           @files.each do |tgt, src|
             src_escaped = src.to_s.gsub('"', '""')
             target_dir_escaped = Pathname.new(tgt).dirname.to_s.gsub('"', '""')
-            iss << "Source: \"#{src_escaped}\"; DestDir: \"{app}/#{target_dir_escaped}\"\n"
+            iss << "Source: \"#{src_escaped}\"; DestDir: \"{app}/#{target_dir_escaped}\"\n" unless src_escaped =~ IGNORE_MODULES
           end
           iss << "\n"
 
