@@ -229,7 +229,8 @@ module Ocra
     :debug_extract => false,
     :arg => [],
     :enc => true,
-    :gem => []
+    :gem => [],
+    :without => nil
   }
 
   @options.each_key { |opt| eval("def self.#{opt}; @options[:#{opt}]; end") }
@@ -333,6 +334,10 @@ Gem content detection modes:
   extras: C/C++ sources, object files, test, spec, README
   files: all other files
 
+Gem group :
+
+--without Exlude gems that are in the group specified
+
 Auto-detection options:
 
 --no-dep-run       Don't run script.rb to check for dependencies.
@@ -385,6 +390,8 @@ EOF
       when /\A--gemfile\z/
         @options[:gemfile] = Pathname(argv.shift)
         Ocra.fatal_error "Gemfile #{gemfile} not found.\n" unless gemfile.exist?
+      when /\A--without\z/
+        @options[:without] = argv.shift
       when /\A--innosetup\z/
         @options[:inno_script] = Pathname(argv.shift)
         Ocra.fatal_error "Inno Script #{inno_script} not found.\n" unless inno_script.exist?
@@ -549,23 +556,47 @@ EOF
   def Ocra.find_gem_files(features)
     features_from_gems = []
     gems = {}
+    gems_to_include = []
 
-    # If a Bundler Gemfile was provided, add all gems it specifies
+    # If a Bundler Gemfile was provided, add all gems out of the group specified
+    # if no group add it all
     if Ocra.gemfile
       Ocra.msg "Scanning Gemfile"
       # Load Rubygems and Bundler so we can scan the Gemfile
       ['rubygems', 'bundler'].each do |lib|
         begin
           require lib
+          # Add the two gems in the list
+          # if not they will be exclude in the rest of the script
+          gems_to_include.push(lib)
         rescue LoadError
           Ocra.fatal_error "Couldn't scan Gemfile, unable to load #{lib}"
         end
       end
 
       ENV['BUNDLE_GEMFILE'] = Ocra.gemfile
+
+      #
+      Ocra.msg "Sorting gems for don't include gems in the group '#{Ocra.without}'"
+
+      # Keep only gems that are not in the group specified
+      Bundler.load.current_dependencies.each do |dep|
+        if not dep.groups.include?(Ocra.without.to_sym)
+          gems_to_include.push(dep.name)
+          dep.to_spec.dependencies.each do |dep2|
+            if dep2.type == :runtime
+              gems_to_include.push(dep2.name)
+            end
+          end
+        end
+      end
+
+      # Only load gems that in the array of included and needed gems
       Bundler.load.specs.each do |spec|
-        Ocra.verbose_msg "From Gemfile, adding gem #{spec.full_name}"
-        gems[spec.name] ||= spec
+        if gems_to_include.include?(spec.name)
+          Ocra.verbose_msg "From Gemfile, adding gem #{spec.full_name}"
+          gems[spec.name] ||= spec
+        end
       end
 
       unless gems.any?{|dir, name| name =~ /^bundler-[.0-9]+/}
@@ -579,7 +610,11 @@ EOF
 
     if defined?(Gem)
       # Include Gems that are loaded
-      Gem.loaded_specs.each { |gemname, spec| gems[gemname] ||= spec }
+      Gem.loaded_specs.each do |gemname, spec|
+        if gems_to_include.include?(spec.name)
+          gems[spec.name] ||= spec
+        end
+      end
       # Fall back to gem detection (loaded_specs are not population on
       # all Ruby versions)
       features.each do |feature|
@@ -603,7 +638,7 @@ EOF
             if spec = Gem::Specification.load(gemspecpath)
               gems[spec.name] ||= spec
               features_from_gems << feature
-            else
+           else
               Ocra.warn "Failed to load gemspec for '#{fullgemname}'"
             end
           end
