@@ -576,12 +576,13 @@ EOF
 
       ENV['BUNDLE_GEMFILE'] = Ocra.gemfile
 
-      #
-      Ocra.msg "Sorting gems for don't include gems in the group '#{Ocra.without}'"
+      if not Ocra.without.nil?
+        Ocra.msg "Sorting gems for don't include gems in the group '#{Ocra.without}'"
+      end
 
       # Keep only gems that are not in the group specified
       Bundler.load.current_dependencies.each do |dep|
-        if not dep.groups.include?(Ocra.without.to_sym)
+        if Ocra.without.nil? or not dep.groups.include?(Ocra.without.to_sym)
           gems_to_include.push(dep.name)
           dep.to_spec.dependencies.each do |dep2|
             if dep2.type == :runtime
